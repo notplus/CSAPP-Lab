@@ -132,7 +132,6 @@ NOTES:
  *      the correct answers.
  */
 
-
 #endif
 //1
 /* 
@@ -142,8 +141,9 @@ NOTES:
  *   Max ops: 14
  *   Rating: 1
  */
-int bitXor(int x, int y) {
-  return 2;
+int bitXor(int x, int y)
+{
+  return ~(~(~x & y) & ~(x & ~y));
 }
 /* 
  * tmin - return minimum two's complement integer 
@@ -151,10 +151,10 @@ int bitXor(int x, int y) {
  *   Max ops: 4
  *   Rating: 1
  */
-int tmin(void) {
+int tmin(void)
+{
 
-  return 2;
-
+  return 1 << 31;
 }
 //2
 /*
@@ -164,8 +164,9 @@ int tmin(void) {
  *   Max ops: 10
  *   Rating: 1
  */
-int isTmax(int x) {
-  return 2;
+int isTmax(int x)
+{
+  return !(x ^ (~(1 << 31)));
 }
 /* 
  * allOddBits - return 1 if all odd-numbered bits in word set to 1
@@ -175,8 +176,9 @@ int isTmax(int x) {
  *   Max ops: 12
  *   Rating: 2
  */
-int allOddBits(int x) {
-  return 2;
+int allOddBits(int x)
+{
+  return !((x & 0xAAAAAAAA) - 0xAAAAAAAA);
 }
 /* 
  * negate - return -x 
@@ -185,8 +187,9 @@ int allOddBits(int x) {
  *   Max ops: 5
  *   Rating: 2
  */
-int negate(int x) {
-  return 2;
+int negate(int x)
+{
+  return ~x + 1;
 }
 //3
 /* 
@@ -198,8 +201,11 @@ int negate(int x) {
  *   Max ops: 15
  *   Rating: 3
  */
-int isAsciiDigit(int x) {
-  return 2;
+int isAsciiDigit(int x)
+{
+  int a = x - 48;
+  int b = x - 58;
+  return !(a >> 31) & (b >> 31);
 }
 /* 
  * conditional - same as x ? y : z 
@@ -208,8 +214,10 @@ int isAsciiDigit(int x) {
  *   Max ops: 16
  *   Rating: 3
  */
-int conditional(int x, int y, int z) {
-  return 2;
+int conditional(int x, int y, int z)
+{
+  int sel = (!x) - 1;
+  return (~sel & z) | (sel & y);
 }
 /* 
  * isLessOrEqual - if x <= y  then return 1, else return 0 
@@ -218,8 +226,12 @@ int conditional(int x, int y, int z) {
  *   Max ops: 24
  *   Rating: 3
  */
-int isLessOrEqual(int x, int y) {
-  return 2;
+int isLessOrEqual(int x, int y)
+{
+  int diff_sign = !(x >> 31) ^ !(y >> 31);
+  int a = diff_sign & (x >> 31);
+  int b = !diff_sign & !((y + (~x + 1)) >> 31);
+  return a | b;
 }
 //4
 /* 
@@ -230,8 +242,9 @@ int isLessOrEqual(int x, int y) {
  *   Max ops: 12
  *   Rating: 4 
  */
-int logicalNeg(int x) {
-  return 2;
+int logicalNeg(int x)
+{
+  return (x - 1) >> 31 & ~(x >> 31) & 1;
 }
 /* howManyBits - return the minimum number of bits required to represent x in
  *             two's complement
@@ -245,8 +258,23 @@ int logicalNeg(int x) {
  *  Max ops: 90
  *  Rating: 4
  */
-int howManyBits(int x) {
-  return 0;
+int howManyBits(int x)
+{
+  int sign = x >> 31;
+  x = (~sign & x) | (sign & ~x);
+
+  int b16 = !!(x >> 16) << 4;
+  x >>= b16;
+  int b8 = !!(x >> 8) << 3;
+  x >>= b8;
+  int b4 = !!(x >> 4) << 2;
+  x >>= b4;
+  int b2 = !!(x >> 2) << 1;
+  x >>= b2;
+  int b1 = !!(x >> 1);
+  x >>= b1;
+  int b0 = x;
+  return b16 + b8 + b4 + b2 + b1 + b0 + 1;
 }
 //float
 /* 
@@ -260,8 +288,18 @@ int howManyBits(int x) {
  *   Max ops: 30
  *   Rating: 4
  */
-unsigned floatScale2(unsigned uf) {
-  return 2;
+unsigned floatScale2(unsigned uf)
+{
+  int exp = (uf >> 23) & 0xff;
+  int sign = uf & (1 << 31);
+  if (exp == 0)
+    return (uf << 1) | sign;
+  if (exp == 0xff)
+    return uf;
+  if (exp == 0xfe)
+    return 0x7f800000 | sign;
+  exp = (exp + 1) << 23;
+  return uf & 0x807fffff | exp;
 }
 /* 
  * floatFloat2Int - Return bit-level equivalent of expression (int) f
@@ -275,8 +313,31 @@ unsigned floatScale2(unsigned uf) {
  *   Max ops: 30
  *   Rating: 4
  */
-int floatFloat2Int(unsigned uf) {
-  return 2;
+int floatFloat2Int(unsigned uf)
+{
+  int exp = (uf >> 23) & 0xff;
+  int frac = uf & 0x7fffff;
+  int sign = uf & (1 << 31);
+  if (exp == 0xff)
+    return 0x80000000u;
+  if (exp == 0)
+    return 0;
+  int frac1 = frac | 0x800000;
+  int bias_exp = exp - 127;
+  if (bias_exp > 31)
+    return 0x80000000u;
+  if (bias_exp < 0)
+    return 0;
+  if (bias_exp > 23)
+    frac1 <<= (bias_exp - 23);
+  else
+    frac1 >>= (23 - bias_exp);
+  if (!((frac1 >> 31) ^ sign))
+    return frac1;
+  else if (frac1 >> 31)
+    return 0x80000000u;
+  else
+    return ~frac1 + 1;
 }
 /* 
  * floatPower2 - Return bit-level equivalent of the expression 2.0^x
@@ -291,6 +352,11 @@ int floatFloat2Int(unsigned uf) {
  *   Max ops: 30 
  *   Rating: 4
  */
-unsigned floatPower2(int x) {
-    return 2;
+unsigned floatPower2(int x)
+{
+  if (x < -126)
+    return 0;
+  if (x > 127)
+    return 0x7f800000;
+  return (x + 127) << 23;
 }
